@@ -6,6 +6,7 @@ set.seed(5278)
 library('kernlab')
 # for parallel process
 library('doParallel')
+require('psych')
 
 cores = 4 
 
@@ -40,8 +41,9 @@ getclassifier<- function(name, grid){
     print('get accuracy')
 
     mean_accuracy = 0
-    for(i in seq(1,7,by=2)){
-      inTraining = matrix(unlist(conxuntos_kfold[i]),ncol=1, byrow=T)
+    all_test = c()
+    all_pred = c()
+    for(i in seq(1,7,by=2)){inTraining = matrix(unlist(conxuntos_kfold[i]),ncol=1, byrow=T)
       inTesting = matrix(unlist(conxuntos_kfold[i+1]),ncol=1, byrow=T)
       
       training = tdata[inTraining,]
@@ -51,21 +53,28 @@ getclassifier<- function(name, grid){
       rf = train(clase ~ ., data=training, method=name, ntree=500, trControl=trControl,tuneGrid=best)
       
       pred = predict(rf, newdata = testing)
+      all_test = c(all_test, testing$clase)
+      all_pred = c(all_pred, pred)
       accuracy = postResample(pred, testing$clase)['Accuracy']
       mean_accuracy = mean_accuracy + accuracy/4
     }
+    kappa =  cohen.kappa(x = cbind(all_test, all_pred))$kappa
     stopCluster(cl=cl)
     print(' ')
     gc()
-    return(mean_accuracy)
+    return(list(accuracy = mean_accuracy, kappa = kappa))
     }
 }
+
+
 
 
 
 #-------------------------------- classifier --------------------------#
 
 # done
+
+# ongoing
 rf_grid = expand.grid(mtry=c(seq(2,29,by=3)))
 rf = list(grid = rf_grid, name = 'rf')
 
@@ -81,6 +90,9 @@ parRF = list(grid = parRF_grid, name = 'parRF')
 c50_grid = expand.grid(winnow = c(TRUE,FALSE), trials=c(1,10,20), model=c("rules","tree") )
 c50 = list(grid = c50_grid, name = "c5.0")
 
+## cfs = list(rf, svmPoly, svmRadial, parRF, c50)
+#6
+#todo
 nnet_grid = expand.grid(size = c(seq(1,9,by=2)), decay = c(0,0.1,0.01,0.001,0.0001))
 nnet = list(grid = nnet_grid, name = "nnet")
 
@@ -93,21 +105,22 @@ avNNet = list(grid = avNNet_grid, name = "avNNet")
 pcaNNet_grid = expand.grid(size = c(seq(1,9,by=2)), decay = c(0,0.1,0.01,0.001,0.0001))
 pcaNNet = list(grid = pcaNNet_grid, name = "pcaNNet")
 
-#on going
-
 mlp_grid = expand.grid(size = c(seq(1,19,by=2)))
 mlp = list(grid=mlp_grid, name = "mlp")
 
 RRF_grid = expand.grid(mtry = 2, coefreg=c(0.01,0.5,1), coefimp = c(0, 0.5, 1))
-RRF = list(grid=rrf_grid, name = "RRF")
+RRF = list(grid=RRF_grid, name = "RRF")
 
 RRFglobal_grid = expand.grid(mtry = 2, coefreg=c(seq(0.01,1,by=0.12)))
-RRFglobal = list(grid=rrfglobal_grid, name = "RRFglobal")
-
-#todo
+RRFglobal = list(grid=RRFglobal_grid, name = "RRFglobal")
 
 
-cfs = list(parRF, avNNet, pcaNNet)
+#new todo
+
+## stepLDA_grid = expand.grid(s = 1)
+## stepLDA = list(grid = stepLDA
+
+## cfs = list(stepLDA)
 
 # loop all file
 dirs = list.dirs('data',full.names=FALSE,recursive=FALSE)
@@ -117,7 +130,9 @@ dirs = list.dirs('data',full.names=FALSE,recursive=FALSE)
 
 #save all accuracy of classifier(row) to data set(column)
 result_accuracy = data.frame(matrix(ncol = length(dirs), nrow = 0))
+result_kappa = data.frame(matrix(ncol = length(dirs), nrow = 0))
 names(result_accuracy) = dirs
+names(result_kappa) = dirs
 
 for(cf in cfs){
   for(dir in dirs){
@@ -129,8 +144,13 @@ for(cf in cfs){
     if(all(file.exists(path,conxuntos_path,conxuntos_k_path))){
       getresult = getclassifier(cf$name, cf$grid)
       tryCatch({
-        accuracy = getresult(path=path, conxuntos_path=conxuntos_path, conxuntos_k_path=conxuntos_k_path)
+        r = getresult(path=path, conxuntos_path=conxuntos_path, conxuntos_k_path=conxuntos_k_path)
+        accuracy = r$accuracy
         result_accuracy[cf$name, dir] =  accuracy
+
+        kappa = r$kappa
+        result_kappa[cf$name, dir] = kappa
+
         rm(getresult)
         gc()
       }, error = function(e){
@@ -139,7 +159,34 @@ for(cf in cfs){
     }
     gc()
   }
-  write.table(result_accuracy, 'result')
+  write.table(result_accuracy, 'allresult/15accuracy')
+  write.table(result_kappa, 'allresult/15kappa')
+
 }
 
+## cf_names =  c()
+## for(cf in cfs){
+##   cf_names = c(cf_names, c(cf$name))
+## }
+
+
+## accuracies = read.table('result/top12_result')
+## average_accuracy = data.frame(matrix(ncol = 0 ,nrow = 1))
+## cf_names = row.names(accuracies)
+## names(average_accuracy) = cf_names
+## for(cf in 1:nrow(accuracies)){
+##   total = 0
+##   na_count = 0
+##   for(dat in 1:ncol(accuracies)){
+##     accu = accuracies[cf,dat]
+##     if(is.na(accu)){
+##       na_count = na_count + 1
+##     }else{
+##       total = total + accu
+##     }
+##   }
+##   average_accuracy[1,cf_names[cf]] = total/(ncol(accuracies)-na_count)
+## }
+## print(average_accuracy)
+## write.table(average_accuracy,"result/top12_average_accuracy")
 

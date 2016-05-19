@@ -4,3 +4,6 @@
 .Rhistory
 data.tar.gz
 data/
+smalldata/
+allresult/
+result/
